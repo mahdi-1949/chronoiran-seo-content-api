@@ -1,0 +1,12 @@
+{
+  "name": "chronoiran/seo-content-api",
+  "description": "WooCommerce category and product SEO draft/publish REST API.",
+  "type": "wordpress-plugin",
+  "license": "proprietary",
+  "require": {
+    "php": ">=7.4"
+  },
+  "scripts": {
+    "lint": "php -l chronoiran-seo-api.php"
+  }
+}
