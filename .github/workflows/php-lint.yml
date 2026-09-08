@@ -22,5 +22,5 @@ jobs:
         run: php -l chronoiran-seo-api.php
       - name: Verify documented version
         run: |
-          grep -q "Version: 0.4.0" chronoiran-seo-api.php
-          grep -q '`0.4.0`' README.md
+          grep -q "Version: 0.4.1" chronoiran-seo-api.php
+          grep -q '`0.4.1`' README.md

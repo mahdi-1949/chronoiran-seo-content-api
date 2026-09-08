@@ -1,9 +1,11 @@
 <?php
 /**
- * Plugin Name: ChronoIran SEO Content API
- * Description: Versioned REST API for drafting, reviewing, and publishing WooCommerce category and product SEO content.
- * Version: 0.4.0
- * Author: ChronoIran
+ * Plugin Name: رابط محتوای سئوی کورنو ایران
+ * Plugin URI: https://github.com/mahdi-1949/chronoiran-seo-content-api
+ * Description: رابط برنامه‌نویسی نسخه‌بندی‌شده برای پیش‌نویس، بازبینی و انتشار محتوای سئوی دسته‌ها و محصولات ووکامرس؛ طراحی شده توسط مهدی توکلی.
+ * Version: 0.4.1
+ * Author: مهدی توکلی
+ * Author URI: https://github.com/mahdi-1949
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Text Domain: chronoiran-seo-api
@@ -14,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class ChronoIran_SEO_Content_API {
-	const VERSION             = '0.4.0';
+	const VERSION             = '0.4.1';
 	const REST_NAMESPACE      = 'chrono-seo/v1';
 	const TERM_DRAFT_META     = '_chrono_seo_draft';
 	const TERM_STATUS_META    = '_chrono_seo_status';
