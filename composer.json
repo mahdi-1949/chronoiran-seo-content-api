@@ -1,6 +1,6 @@
 {
   "name": "chronoiran/seo-content-api",
-  "description": "WooCommerce category and product SEO draft/publish REST API.",
+  "description": "رابط REST برای پیش‌نویس و انتشار محتوای سئوی دسته‌ها و محصولات ووکامرس.",
   "type": "wordpress-plugin",
   "license": "proprietary",
   "require": {

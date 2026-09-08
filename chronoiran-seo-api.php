@@ -3,7 +3,7 @@
  * Plugin Name: رابط محتوای سئوی کورنو ایران
  * Plugin URI: https://github.com/mahdi-1949/chronoiran-seo-content-api
  * Description: رابط برنامه‌نویسی نسخه‌بندی‌شده برای پیش‌نویس، بازبینی و انتشار محتوای سئوی دسته‌ها و محصولات ووکامرس؛ طراحی شده توسط مهدی توکلی.
- * Version: 0.4.1
+ * Version: 0.4.2
  * Author: مهدی توکلی
  * Author URI: https://github.com/mahdi-1949
  * Requires at least: 6.0
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class ChronoIran_SEO_Content_API {
-	const VERSION             = '0.4.1';
+	const VERSION             = '0.4.2';
 	const REST_NAMESPACE      = 'chrono-seo/v1';
 	const TERM_DRAFT_META     = '_chrono_seo_draft';
 	const TERM_STATUS_META    = '_chrono_seo_status';
@@ -27,6 +27,37 @@ final class ChronoIran_SEO_Content_API {
 
 	public function __construct() {
 		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+		remove_filter( 'term_description', 'wp_kses_data' );
+		add_filter( 'term_description', 'wp_kses_post' );
+		add_filter( 'rest_allowed_cors_headers', array( $this, 'allow_api_key_cors_header' ) );
+		add_filter( 'wpseo_title', array( $this, 'filter_taxonomy_yoast_title' ), 20 );
+		add_filter( 'wpseo_metadesc', array( $this, 'filter_taxonomy_yoast_description' ), 20 );
+		add_filter( 'wpseo_canonical', array( $this, 'filter_taxonomy_yoast_canonical' ), 20 );
+		add_filter( 'wpseo_opengraph_title', array( $this, 'filter_taxonomy_yoast_title' ), 20 );
+		add_filter( 'wpseo_opengraph_desc', array( $this, 'filter_taxonomy_yoast_description' ), 20 );
+		add_filter( 'wpseo_twitter_title', array( $this, 'filter_taxonomy_yoast_title' ), 20 );
+		add_filter( 'wpseo_twitter_description', array( $this, 'filter_taxonomy_yoast_description' ), 20 );
+	}
+
+	public function allow_api_key_cors_header( $headers ) {
+		$headers[] = 'X-Chrono-API-Key';
+		return array_values( array_unique( $headers ) );
+	}
+
+	public function filter_taxonomy_yoast_title( $current ) {
+		return $this->filter_taxonomy_yoast_value( $current, 'title' );
+	}
+
+	public function filter_taxonomy_yoast_description( $current ) {
+		return $this->filter_taxonomy_yoast_value( $current, 'description' );
+	}
+
+	public function filter_taxonomy_yoast_canonical( $current ) {
+		return $this->filter_taxonomy_yoast_value( $current, 'canonical_url' );
+	}
+
+	public function sanitize_category_description( $description ) {
+		return wp_kses_post( $description );
 	}
 
 	public function register_routes() {
@@ -174,6 +205,9 @@ final class ChronoIran_SEO_Content_API {
 			'yoast'           => defined( 'WPSEO_VERSION' ),
 			'yoast_version'   => defined( 'WPSEO_VERSION' ) ? WPSEO_VERSION : '',
 			'write_auth_mode' => $api_key_enabled ? 'api_key' : 'legacy_public_or_filter',
+			'write_security_configured' => $api_key_enabled,
+			'html_publish_fix'           => true,
+			'yoast_frontend_fallback'    => true,
 			'time_utc'        => current_time( 'mysql', true ),
 		);
 	}
@@ -332,13 +366,13 @@ final class ChronoIran_SEO_Content_API {
 			return $dependency_error;
 		}
 		$this->normalize_category_request( $request );
-		$validation = $this->validate_write_request( $request );
-		if ( is_wp_error( $validation ) ) {
-			return $validation;
-		}
 		$status = $this->resolve_write_status( $request );
 		if ( is_wp_error( $status ) ) {
 			return $status;
+		}
+		$validation = $this->validate_write_request( $request );
+		if ( is_wp_error( $validation ) ) {
+			return $validation;
 		}
 		$request->set_param( 'status', $status );
 		$external_id = sanitize_text_field( (string) $request->get_param( 'external_id' ) );
@@ -376,13 +410,13 @@ final class ChronoIran_SEO_Content_API {
 			return $dependency_error;
 		}
 		$this->normalize_category_request( $request );
-		$validation = $this->validate_write_request( $request );
-		if ( is_wp_error( $validation ) ) {
-			return $validation;
-		}
 		$status = $this->resolve_write_status( $request );
 		if ( is_wp_error( $status ) ) {
 			return $status;
+		}
+		$validation = $this->validate_write_request( $request );
+		if ( is_wp_error( $validation ) ) {
+			return $validation;
 		}
 		$term = $this->get_product_category( (int) $request->get_param( 'id' ) );
 		if ( is_wp_error( $term ) ) {
@@ -398,8 +432,12 @@ final class ChronoIran_SEO_Content_API {
 		$draft['status']     = $status;
 		$draft['updated_at'] = current_time( 'mysql', true );
 
-		if ( isset( $draft['external_id'] ) && '' !== $draft['external_id'] ) {
-			update_term_meta( $term->term_id, self::TERM_EXTERNAL_META, $draft['external_id'] );
+		if ( null !== $request->get_param( 'external_id' ) ) {
+			if ( '' === $draft['external_id'] ) {
+				delete_term_meta( $term->term_id, self::TERM_EXTERNAL_META );
+			} else {
+				update_term_meta( $term->term_id, self::TERM_EXTERNAL_META, $draft['external_id'] );
+			}
 		}
 		update_term_meta( $term->term_id, self::TERM_DRAFT_META, $draft );
 		update_term_meta( $term->term_id, self::TERM_STATUS_META, $status );
@@ -427,13 +465,13 @@ final class ChronoIran_SEO_Content_API {
 			}
 		}
 		if ( $term_args ) {
-			$result = wp_update_term( $term->term_id, 'product_cat', $term_args );
+			$result = $this->update_product_category_term( $term->term_id, $term_args );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
 		}
 		$this->publish_yoast_meta( 'term', $term->term_id, $draft );
-		$this->rebuild_yoast_term_indexable( $term->term_id );
+		$indexable_rebuilt = $this->rebuild_yoast_term_indexable( $term->term_id );
 		foreach ( array( 'intro_content', 'outro_content' ) as $field ) {
 			if ( array_key_exists( $field, $draft ) ) {
 				update_term_meta( $term->term_id, '_chrono_' . $field, $draft[ $field ] );
@@ -444,7 +482,9 @@ final class ChronoIran_SEO_Content_API {
 		$draft['published_at'] = current_time( 'mysql', true );
 		update_term_meta( $term->term_id, self::TERM_DRAFT_META, $draft );
 		update_term_meta( $term->term_id, self::TERM_STATUS_META, 'published' );
+		update_term_meta( $term->term_id, '_chrono_yoast_indexable_rebuilt', $indexable_rebuilt ? '1' : '0' );
 		clean_term_cache( $term->term_id, 'product_cat' );
+		$this->purge_object_url_cache( get_term_link( $term->term_id, 'product_cat' ) );
 		return $this->category_response( get_term( $term->term_id, 'product_cat' ), $created ? 201 : 200 );
 	}
 
@@ -505,13 +545,13 @@ final class ChronoIran_SEO_Content_API {
 
 	public function update_product( WP_REST_Request $request ) {
 		$this->normalize_product_request( $request );
-		$validation = $this->validate_write_request( $request );
-		if ( is_wp_error( $validation ) ) {
-			return $validation;
-		}
 		$status = $this->resolve_write_status( $request );
 		if ( is_wp_error( $status ) ) {
 			return $status;
+		}
+		$validation = $this->validate_write_request( $request );
+		if ( is_wp_error( $validation ) ) {
+			return $validation;
 		}
 		$post = $this->get_product_post( (int) $request->get_param( 'id' ) );
 		if ( is_wp_error( $post ) ) {
@@ -527,8 +567,12 @@ final class ChronoIran_SEO_Content_API {
 		$draft['status']     = $status;
 		$draft['updated_at'] = current_time( 'mysql', true );
 
-		if ( isset( $draft['external_id'] ) && '' !== $draft['external_id'] ) {
-			update_post_meta( $post->ID, self::POST_EXTERNAL_META, $draft['external_id'] );
+		if ( null !== $request->get_param( 'external_id' ) ) {
+			if ( '' === $draft['external_id'] ) {
+				delete_post_meta( $post->ID, self::POST_EXTERNAL_META );
+			} else {
+				update_post_meta( $post->ID, self::POST_EXTERNAL_META, $draft['external_id'] );
+			}
 		}
 		update_post_meta( $post->ID, self::POST_DRAFT_META, $draft );
 		update_post_meta( $post->ID, self::POST_STATUS_META, $status );
@@ -568,13 +612,15 @@ final class ChronoIran_SEO_Content_API {
 			}
 		}
 		$this->publish_yoast_meta( 'post', $post->ID, $draft );
-		$this->rebuild_yoast_post_indexable( $post->ID );
+		$indexable_rebuilt = $this->rebuild_yoast_post_indexable( $post->ID );
 
 		$draft['status']       = 'published';
 		$draft['published_at'] = current_time( 'mysql', true );
 		update_post_meta( $post->ID, self::POST_DRAFT_META, $draft );
 		update_post_meta( $post->ID, self::POST_STATUS_META, 'published' );
+		update_post_meta( $post->ID, '_chrono_yoast_indexable_rebuilt', $indexable_rebuilt ? '1' : '0' );
 		clean_post_cache( $post->ID );
+		$this->purge_object_url_cache( get_permalink( $post->ID ) );
 		return $this->product_response( get_post( $post->ID ) );
 	}
 
@@ -824,6 +870,54 @@ final class ChronoIran_SEO_Content_API {
 		return false;
 	}
 
+	/**
+	 * Preserve safe post-style HTML in taxonomy descriptions regardless of the
+	 * authentication mechanism used by the REST request.
+	 */
+	private function update_product_category_term( $term_id, array $term_args ) {
+		if ( ! array_key_exists( 'description', $term_args ) ) {
+			return wp_update_term( $term_id, 'product_cat', $term_args );
+		}
+
+		$term_args['description'] = wp_kses_post( $term_args['description'] );
+		$kses_priority             = has_filter( 'pre_term_description', 'wp_filter_kses' );
+		if ( false !== $kses_priority ) {
+			remove_filter( 'pre_term_description', 'wp_filter_kses', $kses_priority );
+		}
+		add_filter( 'pre_term_description', array( $this, 'sanitize_category_description' ), 10 );
+
+		try {
+			return wp_update_term( $term_id, 'product_cat', $term_args );
+		} finally {
+			remove_filter( 'pre_term_description', array( $this, 'sanitize_category_description' ), 10 );
+			if ( false !== $kses_priority ) {
+				add_filter( 'pre_term_description', 'wp_filter_kses', $kses_priority );
+			}
+		}
+	}
+
+	private function filter_taxonomy_yoast_value( $current, $field ) {
+		if ( ! is_tax( 'product_cat' ) ) {
+			return $current;
+		}
+		$term = get_queried_object();
+		if ( ! $term || empty( $term->term_id ) || 'product_cat' !== $term->taxonomy ) {
+			return $current;
+		}
+		$yoast = $this->get_yoast_meta( 'term', (int) $term->term_id );
+		return isset( $yoast[ $field ] ) && '' !== $yoast[ $field ] ? $yoast[ $field ] : $current;
+	}
+
+	private function purge_object_url_cache( $url ) {
+		if ( is_wp_error( $url ) || '' === (string) $url ) {
+			return;
+		}
+		do_action( 'litespeed_purge_url', (string) $url );
+		if ( function_exists( 'rocket_clean_files' ) ) {
+			rocket_clean_files( array( (string) $url ) );
+		}
+	}
+
 	private function publish_yoast_meta( $object_type, $object_id, array $draft ) {
 		$map = array(
 			'seo_title'        => '_yoast_wpseo_title',
@@ -871,36 +965,40 @@ final class ChronoIran_SEO_Content_API {
 	 * Rebuild Yoast's cached representation after taxonomy SEO metadata changes.
 	 */
 	private function rebuild_yoast_term_indexable( $term_id ) {
-		$class = '\\Yoast\\WP\\SEO\\Integrations\\Watchers\\Indexable_Term_Watcher';
+		$class = 'Yoast\\WP\\SEO\\Integrations\\Watchers\\Indexable_Term_Watcher';
 		if ( ! function_exists( 'YoastSEO' ) || ! class_exists( $class ) ) {
-			return;
+			return false;
 		}
 		try {
 			$watcher = YoastSEO()->classes->get( $class );
 			if ( $watcher && is_callable( array( $watcher, 'build_indexable' ) ) ) {
 				$watcher->build_indexable( (int) $term_id );
+				return true;
 			}
 		} catch ( Throwable $exception ) {
-			// Metadata is already saved; Yoast can rebuild the indexable later.
+			return false;
 		}
+		return false;
 	}
 
 	/**
 	 * Rebuild Yoast's cached representation after product SEO metadata changes.
 	 */
 	private function rebuild_yoast_post_indexable( $post_id ) {
-		$class = '\\Yoast\\WP\\SEO\\Integrations\\Watchers\\Indexable_Post_Watcher';
+		$class = 'Yoast\\WP\\SEO\\Integrations\\Watchers\\Indexable_Post_Watcher';
 		if ( ! function_exists( 'YoastSEO' ) || ! class_exists( $class ) ) {
-			return;
+			return false;
 		}
 		try {
 			$watcher = YoastSEO()->classes->get( $class );
 			if ( $watcher && is_callable( array( $watcher, 'build_indexable' ) ) ) {
 				$watcher->build_indexable( (int) $post_id );
+				return true;
 			}
 		} catch ( Throwable $exception ) {
-			// Metadata is already saved; Yoast can rebuild the indexable later.
+			return false;
 		}
+		return false;
 	}
 
 	private function category_response( $term, $http_status = 200 ) {
@@ -970,11 +1068,18 @@ final class ChronoIran_SEO_Content_API {
 		$yoast  = $this->get_yoast_meta( 'term', $term->term_id );
 		$applied = 'published' === $status && ! empty( $draft );
 		$warnings = array();
+		$description_matches = $applied ? ( ! array_key_exists( 'description', $draft ) || $term->description === $draft['description'] ) : null;
+		$yoast_title_matches = $applied ? ( ! array_key_exists( 'seo_title', $draft ) || $yoast['title'] === $draft['seo_title'] ) : null;
+		$yoast_desc_matches  = $applied ? ( ! array_key_exists( 'meta_description', $draft ) || $yoast['description'] === $draft['meta_description'] ) : null;
+		$indexable_rebuilt   = '1' === (string) get_term_meta( $term->term_id, '_chrono_yoast_indexable_rebuilt', true );
 		if ( $applied && ! defined( 'WPSEO_VERSION' ) && $this->draft_has_seo_fields( $draft ) ) {
 			$warnings[] = 'Yoast SEO فعال نیست؛ محتوای اصلی منتشر شده اما خروجی متای Yoast تضمین نمی‌شود.';
 		}
 		if ( isset( $draft['intro_content'] ) || isset( $draft['outro_content'] ) ) {
 			$warnings[] = 'intro_content و outro_content متای سفارشی هستند و نمایش آن‌ها به قالب سایت وابسته است؛ برای محتوای استاندارد دسته از description استفاده کنید.';
+		}
+		if ( $applied && $this->draft_has_seo_fields( $draft ) && defined( 'WPSEO_VERSION' ) && ! $indexable_rebuilt ) {
+			$warnings[] = 'بازسازی Indexable داخلی Yoast تأیید نشد؛ فیلتر خروجی زنده افزونه همچنان عنوان و توضیحات ذخیره‌شده را نمایش می‌دهد.';
 		}
 		return array(
 			'id'               => (int) $term->term_id,
@@ -1003,9 +1108,12 @@ final class ChronoIran_SEO_Content_API {
 			'verification'     => array(
 				'url_resolved'              => ! is_wp_error( $url ) && '' !== (string) $url,
 				'yoast_active'               => defined( 'WPSEO_VERSION' ),
-				'description_matches_draft' => $applied ? ( ! array_key_exists( 'description', $draft ) || $term->description === $draft['description'] ) : null,
-				'yoast_title_matches_draft' => $applied ? ( ! array_key_exists( 'seo_title', $draft ) || $yoast['title'] === $draft['seo_title'] ) : null,
-				'yoast_desc_matches_draft'  => $applied ? ( ! array_key_exists( 'meta_description', $draft ) || $yoast['description'] === $draft['meta_description'] ) : null,
+				'description_matches_draft' => $description_matches,
+				'yoast_title_matches_draft' => $yoast_title_matches,
+				'yoast_desc_matches_draft'  => $yoast_desc_matches,
+				'yoast_indexable_rebuilt'   => $indexable_rebuilt,
+				'frontend_seo_fallback_active' => true,
+				'all_requested_fields_match' => $applied ? ( $description_matches && $yoast_title_matches && $yoast_desc_matches ) : null,
 			),
 			'warnings'         => $warnings,
 			'draft'            => $draft,
@@ -1027,6 +1135,10 @@ final class ChronoIran_SEO_Content_API {
 		$yoast  = $this->get_yoast_meta( 'post', $post->ID );
 		$applied  = 'published' === $status && ! empty( $draft );
 		$warnings = array();
+		$description_matches = $applied ? ( ! array_key_exists( 'description', $draft ) || $post->post_content === $draft['description'] ) : null;
+		$yoast_title_matches = $applied ? ( ! array_key_exists( 'seo_title', $draft ) || $yoast['title'] === $draft['seo_title'] ) : null;
+		$yoast_desc_matches  = $applied ? ( ! array_key_exists( 'meta_description', $draft ) || $yoast['description'] === $draft['meta_description'] ) : null;
+		$indexable_rebuilt   = '1' === (string) get_post_meta( $post->ID, '_chrono_yoast_indexable_rebuilt', true );
 		if ( 'published' === $status && ! defined( 'WPSEO_VERSION' ) && $this->draft_has_seo_fields( $draft ) ) {
 			$warnings[] = 'Yoast SEO فعال نیست؛ محتوای اصلی منتشر شده اما خروجی متای Yoast تضمین نمی‌شود.';
 		}
@@ -1054,9 +1166,11 @@ final class ChronoIran_SEO_Content_API {
 			'verification'      => array(
 				'wordpress_post_status'     => $post->post_status,
 				'yoast_active'               => defined( 'WPSEO_VERSION' ),
-				'description_matches_draft' => $applied ? ( ! array_key_exists( 'description', $draft ) || $post->post_content === $draft['description'] ) : null,
-				'yoast_title_matches_draft' => $applied ? ( ! array_key_exists( 'seo_title', $draft ) || $yoast['title'] === $draft['seo_title'] ) : null,
-				'yoast_desc_matches_draft'  => $applied ? ( ! array_key_exists( 'meta_description', $draft ) || $yoast['description'] === $draft['meta_description'] ) : null,
+				'description_matches_draft' => $description_matches,
+				'yoast_title_matches_draft' => $yoast_title_matches,
+				'yoast_desc_matches_draft'  => $yoast_desc_matches,
+				'yoast_indexable_rebuilt'   => $indexable_rebuilt,
+				'all_requested_fields_match' => $applied ? ( $description_matches && $yoast_title_matches && $yoast_desc_matches ) : null,
 			),
 			'draft'             => $draft,
 			'yoast'             => $yoast,
