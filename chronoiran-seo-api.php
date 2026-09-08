@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ChronoIran SEO Content API
  * Description: Versioned REST API for drafting, reviewing, and publishing WooCommerce category and product SEO content.
- * Version: 0.2.0
+ * Version: 0.3.0
  * Author: ChronoIran
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class ChronoIran_SEO_Content_API {
-	const VERSION             = '0.2.0';
+	const VERSION             = '0.3.0';
 	const REST_NAMESPACE      = 'chrono-seo/v1';
 	const TERM_DRAFT_META     = '_chrono_seo_draft';
 	const TERM_STATUS_META    = '_chrono_seo_status';
@@ -150,16 +150,27 @@ final class ChronoIran_SEO_Content_API {
 	private function category_write_args() {
 		return array(
 			'name'             => array( 'type' => 'string' ),
+			'title'            => array( 'type' => 'string' ),
 			'slug'             => array( 'type' => 'string' ),
 			'parent'           => array( 'type' => 'integer', 'minimum' => 0 ),
 			'external_id'      => array( 'type' => 'string' ),
 			'description'      => array( 'type' => 'string' ),
+			'content'          => array( 'type' => 'string' ),
 			'intro_content'    => array( 'type' => 'string' ),
 			'outro_content'    => array( 'type' => 'string' ),
 			'seo_title'        => array( 'type' => 'string' ),
 			'meta_description' => array( 'type' => 'string' ),
 			'focus_keyword'    => array( 'type' => 'string' ),
-			'canonical_url'    => array( 'type' => 'string', 'format' => 'uri' ),
+			'canonical_url'    => array( 'type' => 'string' ),
+			'yoast'            => array(
+				'type'       => 'object',
+				'properties' => array(
+					'title'            => array( 'type' => 'string' ),
+					'description'      => array( 'type' => 'string' ),
+					'focus_keyword'    => array( 'type' => 'string' ),
+					'canonical_url'    => array( 'type' => 'string' ),
+				),
+			),
 			'status'           => array( 'type' => 'string', 'enum' => array( 'draft', 'pending', 'published' ) ),
 		);
 	}
@@ -174,7 +185,7 @@ final class ChronoIran_SEO_Content_API {
 			'seo_title'         => array( 'type' => 'string' ),
 			'meta_description'  => array( 'type' => 'string' ),
 			'focus_keyword'     => array( 'type' => 'string' ),
-			'canonical_url'     => array( 'type' => 'string', 'format' => 'uri' ),
+			'canonical_url'     => array( 'type' => 'string' ),
 			'status'            => array( 'type' => 'string', 'enum' => array( 'draft', 'pending', 'published' ) ),
 		);
 	}
@@ -228,6 +239,7 @@ final class ChronoIran_SEO_Content_API {
 	}
 
 	public function create_or_update_category( WP_REST_Request $request ) {
+		$this->normalize_category_request( $request );
 		$external_id = sanitize_text_field( (string) $request->get_param( 'external_id' ) );
 		$term        = $external_id ? $this->find_category_by_external_id( $external_id ) : false;
 		if ( ! $term && $request->get_param( 'slug' ) ) {
@@ -258,6 +270,7 @@ final class ChronoIran_SEO_Content_API {
 	}
 
 	public function update_category( WP_REST_Request $request, $created = false ) {
+		$this->normalize_category_request( $request );
 		$term = $this->get_product_category( (int) $request->get_param( 'id' ) );
 		if ( is_wp_error( $term ) ) {
 			return $term;
@@ -308,6 +321,7 @@ final class ChronoIran_SEO_Content_API {
 			}
 		}
 		$this->publish_yoast_meta( 'term', $term->term_id, $draft );
+		$this->rebuild_yoast_term_indexable( $term->term_id );
 		foreach ( array( 'intro_content', 'outro_content' ) as $field ) {
 			if ( array_key_exists( $field, $draft ) ) {
 				update_term_meta( $term->term_id, '_chrono_' . $field, $draft[ $field ] );
@@ -503,6 +517,39 @@ final class ChronoIran_SEO_Content_API {
 		return $draft;
 	}
 
+	/**
+	 * Accept documented flat category fields and common nested/alias payloads.
+	 *
+	 * Flat fields remain authoritative when both formats are present.
+	 */
+	private function normalize_category_request( WP_REST_Request $request ) {
+		$aliases = array(
+			'title'   => 'name',
+			'content' => 'description',
+		);
+		foreach ( $aliases as $source => $target ) {
+			if ( null === $request->get_param( $target ) && null !== $request->get_param( $source ) ) {
+				$request->set_param( $target, $request->get_param( $source ) );
+			}
+		}
+
+		$yoast = $request->get_param( 'yoast' );
+		if ( ! is_array( $yoast ) ) {
+			return;
+		}
+		$map = array(
+			'title'            => 'seo_title',
+			'description'      => 'meta_description',
+			'focus_keyword'    => 'focus_keyword',
+			'canonical_url'    => 'canonical_url',
+		);
+		foreach ( $map as $source => $target ) {
+			if ( null === $request->get_param( $target ) && array_key_exists( $source, $yoast ) ) {
+				$request->set_param( $target, $yoast[ $source ] );
+			}
+		}
+	}
+
 	private function publish_yoast_meta( $object_type, $object_id, array $draft ) {
 		$map = array(
 			'seo_title'        => '_yoast_wpseo_title',
@@ -510,16 +557,57 @@ final class ChronoIran_SEO_Content_API {
 			'focus_keyword'    => '_yoast_wpseo_focuskw',
 			'canonical_url'    => '_yoast_wpseo_canonical',
 		);
+		$yoast_term_values = array();
+		if ( 'term' === $object_type && class_exists( 'WPSEO_Taxonomy_Meta' ) ) {
+			WPSEO_Taxonomy_Meta::get_instance();
+			$current = WPSEO_Taxonomy_Meta::get_term_meta( (int) $object_id, 'product_cat' );
+			if ( is_array( $current ) ) {
+				$yoast_term_values = $current;
+			}
+		}
+
+		$term_map = array(
+			'seo_title'        => 'wpseo_title',
+			'meta_description' => 'wpseo_desc',
+			'focus_keyword'    => 'wpseo_focuskw',
+			'canonical_url'    => 'wpseo_canonical',
+		);
 		foreach ( $map as $source => $target ) {
 			if ( ! array_key_exists( $source, $draft ) ) {
 				continue;
 			}
 			$value = 'canonical_url' === $source ? esc_url_raw( $draft[ $source ] ) : sanitize_text_field( $draft[ $source ] );
 			if ( 'term' === $object_type ) {
+				if ( isset( $term_map[ $source ] ) ) {
+					$yoast_term_values[ $term_map[ $source ] ] = $value;
+				}
+				// Mirror values for compatibility with version 0.2.0 API data.
 				update_term_meta( $object_id, $target, $value );
 			} else {
 				update_post_meta( $object_id, $target, $value );
 			}
+		}
+
+		if ( 'term' === $object_type && $yoast_term_values && class_exists( 'WPSEO_Taxonomy_Meta' ) ) {
+			WPSEO_Taxonomy_Meta::set_values( (int) $object_id, 'product_cat', $yoast_term_values );
+		}
+	}
+
+	/**
+	 * Rebuild Yoast's cached representation after taxonomy SEO metadata changes.
+	 */
+	private function rebuild_yoast_term_indexable( $term_id ) {
+		$class = '\\Yoast\\WP\\SEO\\Integrations\\Watchers\\Indexable_Term_Watcher';
+		if ( ! function_exists( 'YoastSEO' ) || ! class_exists( $class ) ) {
+			return;
+		}
+		try {
+			$watcher = YoastSEO()->classes->get( $class );
+			if ( $watcher && is_callable( array( $watcher, 'build_indexable' ) ) ) {
+				$watcher->build_indexable( (int) $term_id );
+			}
+		} catch ( Throwable $exception ) {
+			// Metadata is already saved; Yoast can rebuild the indexable later.
 		}
 	}
 
@@ -614,6 +702,18 @@ final class ChronoIran_SEO_Content_API {
 	}
 
 	private function get_yoast_meta( $object_type, $object_id ) {
+		if ( 'term' === $object_type && class_exists( 'WPSEO_Taxonomy_Meta' ) ) {
+			WPSEO_Taxonomy_Meta::get_instance();
+			$term_meta = WPSEO_Taxonomy_Meta::get_term_meta( (int) $object_id, 'product_cat' );
+			if ( is_array( $term_meta ) ) {
+				return array(
+					'title'         => isset( $term_meta['wpseo_title'] ) ? (string) $term_meta['wpseo_title'] : '',
+					'description'   => isset( $term_meta['wpseo_desc'] ) ? (string) $term_meta['wpseo_desc'] : '',
+					'focus_keyword' => isset( $term_meta['wpseo_focuskw'] ) ? (string) $term_meta['wpseo_focuskw'] : '',
+					'canonical_url' => isset( $term_meta['wpseo_canonical'] ) ? (string) $term_meta['wpseo_canonical'] : '',
+				);
+			}
+		}
 		$get = function( $key ) use ( $object_type, $object_id ) {
 			return 'term' === $object_type ? get_term_meta( $object_id, $key, true ) : get_post_meta( $object_id, $key, true );
 		};
