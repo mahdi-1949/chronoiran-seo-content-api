@@ -4,7 +4,7 @@ WordPress plugin for drafting, reviewing, and publishing WooCommerce product-cat
 
 ## Current version
 
-`0.2.0`
+`0.3.0`
 
 ## Requirements
 
@@ -57,7 +57,56 @@ List endpoints accept `page`, `per_page`, and `search`. Products additionally ac
 }
 ```
 
+## Example category publish
+
+The documented flat fields are the canonical request format:
+
+```json
+{
+  "external_id": "black-mens-watch",
+  "name": "ساعت مشکی مردانه",
+  "slug": "black-mens-watch",
+  "description": "<p>محتوای دسته‌بندی</p>",
+  "seo_title": "خرید و قیمت ساعت مشکی (اورجینال + گارانتی)",
+  "meta_description": "خرید آنلاین ساعت مشکی اصل با ضمانت اصالت کالا، گارانتی معتبر و بهترین قیمت.",
+  "focus_keyword": "ساعت مشکی مردانه",
+  "canonical_url": "",
+  "status": "published"
+}
+```
+
+For compatibility with existing automations, category writes also accept `title`
+as an alias for `name`, `content` as an alias for `description`, and nested Yoast
+fields:
+
+```json
+{
+  "title": "ساعت مشکی مردانه",
+  "slug": "black-mens-watch",
+  "content": "<p>محتوای دسته‌بندی</p>",
+  "yoast": {
+    "title": "خرید و قیمت ساعت مشکی (اورجینال + گارانتی)",
+    "description": "خرید آنلاین ساعت مشکی اصل با ضمانت اصالت کالا، گارانتی معتبر و بهترین قیمت.",
+    "focus_keyword": "ساعت مشکی مردانه",
+    "canonical_url": ""
+  },
+  "status": "published"
+}
+```
+
+When both formats are present, the flat canonical field wins. Remember that
+omitting `status: published` saves a draft only; alternatively call
+`POST /categories/{id}/publish` after review.
+
+## Upgrading from 0.2.0
+
+Version 0.3.0 fixes taxonomy SEO storage by writing category fields through
+Yoast's taxonomy API and rebuilding the corresponding Yoast indexable. Category
+SEO values published by 0.2.0 were mirrored only to WordPress term meta, which
+Yoast does not use for taxonomy output. Re-publish each affected category once
+after updating the plugin to migrate its saved draft into Yoast's live taxonomy
+metadata.
+
 ## Security note
 
-Version 0.2.0 preserves the current public-access behavior for compatibility with the existing n8n workflow. Do not expose write/publish URLs in public workflows. The `chronoiran_seo_api_permission` WordPress filter is available for adding authentication in a later version without changing endpoint callbacks.
-
+Version 0.3.0 preserves the current public-access behavior for compatibility with the existing n8n workflow. Do not expose write/publish URLs in public workflows. The `chronoiran_seo_api_permission` WordPress filter is available for adding authentication in a later version without changing endpoint callbacks.
